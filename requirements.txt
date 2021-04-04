@@ -1,0 +1,5 @@
+PyQt5
+pynput
+pyautogui
+numpy
+tensorflow==2.1

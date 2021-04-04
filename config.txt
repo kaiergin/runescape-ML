@@ -1,0 +1,16 @@
+{
+    "prediction_scale" : 1.0,
+    "window_size" : [800,600],
+    "left_corner" : [400,200],
+    "close" : "esc",
+    "prediction": "f1",
+    "record" : "f2",
+    "control" : "f3",
+    "idle" : "f4",
+    "train" : "f5",
+    "save_network" : "f6",
+    "load_network" : "f7",
+    "new_network" : "f8",
+    "discard_training_data" : "f9",
+    "help" : "f10"
+}
