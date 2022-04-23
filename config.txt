@@ -11,6 +11,6 @@
     "save_network" : "f6",
     "load_network" : "f7",
     "new_network" : "f8",
-    "discard_training_data" : "f9",
+    "discard_last_session" : "f9",
     "help" : "f10"
 }
