@@ -1,12 +1,12 @@
-## Machine learning mouse clicker version 0.1  
+## Machine learning mouse clicker version 0.2  
 
 ### How does it work?  
 
-- Record screen captures, mouse movements and mouse clicks using record mode
+- Use record mode to capture the screen and mouse position each time you click
 - Train the model with the recorded data
-- Let the model do the work, copying your movement and clicks based on image captures
+- Let the model do the work, copying where and when to click based on your gameplay
 
 ### What is working?  
 
-Currently only the proof of concept is working. You are able to capture mouse inputs of the click game that is included in this repo. The model will then learn to click in the circles.
-
+- The network is fully functional and can be trained to play RuneScape!
+- The network can only predict left clicks so any tasks that require right clicks or shift clicks won't work

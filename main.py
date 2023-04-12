@@ -12,25 +12,23 @@ import pyautogui
 import threading
 import numpy as np
 from predict import Network
-import os
 import shutil
 import random
 import tkinter as tk
 from tkinter import filedialog
+from mousepath import wind_mouse
 
 x_size = win32api.GetSystemMetrics(0)
 y_size = win32api.GetSystemMetrics(1)
 
-# Constants (temporary)
+# Constants
 
 DEBUG = False
-BUFFER_SIZE = 2
-NETWORK_INPUT = (200,150)
-# Filler mouse movements for each movement vector
-MOUSE_FILL = 6
-USE_PREDICTED_CLICK = True
-IMAGE_DIR = 'captures\\'
-SAVE_DIR = 'saves\\'
+NETWORK_INPUT = (400,300)
+RIGHT_CLICK = 0
+LEFT_CLICK = 1
+SAVE_DIR = 'scripts\\'
+EXTRA_SLEEP = 2
 
 # For window and main loop
 
@@ -38,57 +36,33 @@ class ScreenOverlay(QMainWindow):
     def __init__(self, config):
         super().__init__()
 
+        # Config
         self.config = config
         self.mode = 'idle'
-        self.idle_on = True # to be used for discard_last_10_seconds without having to be in idle mode
-        self.draw_predictions = False
+        self.current_save_path = 'none'
 
+        # Capturing setup
+        self.last_click_time = None
+        self.new_recording()
+
+        # Screen setup
         self.setWindowFlags(
             QtCore.Qt.Window |
             QtCore.Qt.FramelessWindowHint |
             QtCore.Qt.WindowStaysOnTopHint |
             QtCore.Qt.X11BypassWindowManagerHint
         )
-
         self.current_size = self.config['window_size']
         self.screen_size = (x_size, y_size)
         self.left_corner = self.config['left_corner']
         self.move(*self.left_corner)
         self.right_corner = (self.left_corner[0] + self.current_size[0], self.left_corner[1] + self.current_size[1])
-        
-        self.next_move_available = False
-        self.position = (0,0)
-        self.movement = (0,0)
-        self.predicted_movement = (0,0)
-        self.choice = 0
-        self.predicted_click = (0,0)
-        self.position_buffer = []
-        self.movement_buffer = []
-        self.click_buffer = []
-        self.click_control_buffer = []
-        self.average_time = 0
-        self.cur_index = 0
-        self.cur_session = -1
-        self.max_time_last_click = 0
-        self.creating_new_session = False
-        try:
-            os.mkdir(os.path.join(IMAGE_DIR))
-        except OSError:
-            shutil.rmtree(os.path.join(IMAGE_DIR))
-            os.mkdir(os.path.join(IMAGE_DIR))
-        
-        self.current_save_path = 'none'
-        try:
-            os.mkdir(os.path.join(SAVE_DIR))
-        except OSError:
-            pass
-
         self.setMinimumSize(QtCore.QSize(*self.current_size))
         self.setAttribute(QtCore.Qt.WA_NoSystemBackground, True)
         self.setAttribute(QtCore.Qt.WA_TranslucentBackground, True)
 
-        self.mouse_predictor = Network(self.current_size, NETWORK_INPUT, BUFFER_SIZE, IMAGE_DIR)
-
+        # Network setup and thread init
+        self.mouse_predictor = Network(self.current_size, NETWORK_INPUT)
         self.capture_on = True
 
         keyboard_listener = keyboard.Listener(on_press=self.on_press, on_release=self.on_release)
@@ -96,17 +70,44 @@ class ScreenOverlay(QMainWindow):
         mouse_listener = mouse.Listener(on_click=self.on_click)
         mouse_listener.start()
         threading.Thread(target=self.background_thread, daemon=True).start()
-        threading.Thread(target=self.mouse_mover, daemon=True).start()
+
+    def clear_last_capture(self):
+        print('Clearing previous capture')
+        if self.last_click_time == None:
+            if len(self.click_time_buffer) > 0:
+                self.click_buffer.pop()
+                self.screen_cap_buffer.pop()
+                self.click_time_buffer.pop()
+        self.last_click_time = None
+        self.last_click_location = None
+        self.last_screen_capture = None
+
+    def new_recording(self):
+        self.click_buffer = []
+        self.screen_cap_buffer = []
+        self.click_time_buffer = []
+        self.clear_last_capture()
+
+    def record_moment(self, click, screen_cap):
+        start_time = time.time()
+        if self.last_click_time != None:
+            self.click_buffer.append(self.last_click_location)
+            self.screen_cap_buffer.append(self.last_screen_capture)
+            self.click_time_buffer.append(start_time - self.last_click_time)
+        self.last_click_time = start_time
+        self.last_click_location = click
+        self.last_screen_capture = screen_cap
     
     def on_click(self, x, y, button, pressed):
         if DEBUG:
             print('{0} at {1}'.format('Pressed' if pressed else 'Released', (x, y)))
-        if self.mode == 'record':
-            if pressed and (button == mouse.Button.left or button == mouse.Button.right):
-                self.click_buffer[self.cur_session].append((self.cur_index, self.full_to_window((x, y)), 'right' if button == mouse.Button.right else 'left'))
-        if self.mode == 'control':
-            if pressed and (button == mouse.Button.left or button == mouse.Button.right):
-                self.click_control_buffer.append((self.cur_index, self.full_to_window((x, y)), 'right' if button == mouse.Button.right else 'left'))
+        if self.in_capture_window(x, y):
+            if self.mode == 'record':
+                if pressed and (button == mouse.Button.left or button == mouse.Button.right):
+                    click = self.full_to_window((x, y))#, RIGHT_CLICK if button == mouse.Button.right else LEFT_CLICK
+                    cap = pyautogui.screenshot(region=(*self.left_corner, *self.current_size))
+                    processed_capture = cap.resize(NETWORK_INPUT)
+                    self.record_moment(click, processed_capture)
         if not self.capture_on:
             # Stop listener
             return False
@@ -117,35 +118,7 @@ class ScreenOverlay(QMainWindow):
                 print('alphanumeric key {0} pressed'.format(key.char))
             except AttributeError:
                 print('special key {0} pressed'.format(key))
-
-    def new_control_session(self):
-        self.cur_index = 0
-        self.click_control_buffer = []
-
-    def new_session(self):
-        if len(self.position_buffer) > 0 and len(self.position_buffer[self.cur_session]) < BUFFER_SIZE + 2:
-            self.position_buffer.pop(-1)
-            self.movement_buffer.pop(-1)
-            shutil.rmtree(os.path.join(IMAGE_DIR, str(self.cur_session)))
-        else:
-            self.cur_session += 1
-        self.cur_index = 0
-        self.position_buffer.append([])
-        self.movement_buffer.append([])
-        self.click_buffer.append([])
-        os.mkdir(os.path.join(IMAGE_DIR, str(self.cur_session)))
-        self.creating_new_session = True
-
-    def new_recording(self):
-        shutil.rmtree(os.path.join(IMAGE_DIR))
-        os.mkdir(os.path.join(IMAGE_DIR))
-        self.cur_session = -1
-        self.position_buffer = []
-        self.movement_buffer = []
-        self.click_buffer = []
-        self.total_size = 0
-        self.creating_new_session = True
-
+        
     def on_release(self, key):
         try:
             key = '{0}'.format(key.char)
@@ -161,32 +134,22 @@ class ScreenOverlay(QMainWindow):
             self.capture_on = False
             QApplication.quit()
             return False
-        elif key == self.config['prediction']:
-            if self.draw_predictions:
-                print('Draw predictions: OFF')
-                self.draw_predictions = False
-            else:
-                print('Draw predictions: ON')
-                self.draw_predictions = True
         elif key == self.config['record']:
-            if self.mode == 'record':
-                print('Starting new session')
-            else:
-                print('Record mode: ON')
-            self.new_session()
+            print('Record mode: ON')
             self.mode = 'record'
+            self.clear_last_capture()
         elif key == self.config['control']:
             print('Control mode: ON')
-            self.new_control_session()
             self.mode = 'control'
         elif key == self.config['idle']:
             print('Recording/Controlling: OFF')
             self.mode = 'idle'
         elif key == self.config['train']:
-            print('Training mode: ON')
+            print('Starting training')
             self.mode = 'training'
+            self.mouse_predictor.train(self.screen_cap_buffer, self.click_buffer, self.click_time_buffer)
         elif key == self.config['save_network']:
-            if not self.idle_on:
+            if self.mode != 'idle':
                 print('You must be in idle mode to save a network, press', self.config['idle'], 'then try again')
             else:
                 if self.current_save_path == 'none':
@@ -212,7 +175,7 @@ class ScreenOverlay(QMainWindow):
                 print('Saving to', self.current_save_path)
                 self.mouse_predictor.save(self.current_save_path)
         elif key == self.config['load_network']:
-            if not self.idle_on:
+            if self.mode != 'idle':
                 print('You must be in idle mode to load a network, press', self.config['idle'], 'then try again')
             else:
                 root = tk.Tk()
@@ -220,66 +183,58 @@ class ScreenOverlay(QMainWindow):
                 file_path = filedialog.askdirectory(initialdir=SAVE_DIR, title='Select network folder')
                 self.mouse_predictor.load(file_path)
         elif key == self.config['new_network']:
-            if not self.idle_on:
+            if self.mode != 'idle':
                 print('You must be in idle mode to create a new network, press', self.config['idle'], 'then try again')
             else:
                 print('Creating new network, wiping loaded weights')
                 self.current_save_path = 'none'
                 self.new_recording()
                 self.mouse_predictor.new_network()
-        elif key == self.config['discard_training_data']:
-            if not self.idle_on:
+        elif key == self.config['clear_recording']:
+            if self.mode != 'idle':
                 print('You must be in idle mode to clear training data, press', self.config['idle'], 'then try again')
             else:
+                print('Clearing data')
                 self.new_recording()
         elif key == self.config['help']:
             self.print_help()
+        elif key == self.config['modify_learning_rate']:
+            print('Enter a new learning rate')
+            stdinput = input('>')
+            try:
+                new_learning_rate = float(stdinput)
+                self.mouse_predictor.update_learning_rate(new_learning_rate)
+            except:
+                print('Invalid learning rate, not a float')
+        elif key == self.config['modify_epochs']:
+            print('Enter a new # of epochs')
+            stdinput = input('>')
+            try:
+                new_epochs = int(stdinput)
+                self.mouse_predictor.update_epochs(new_epochs)
+            except:
+                print('Invalid epochs, not an int')
 
-    def mouse_mover(self):
+    def background_thread(self):
         while self.capture_on:
-            if self.next_move_available:
-                if USE_PREDICTED_CLICK:
-                    predicted_length = np.sqrt(pow(self.predicted_movement[0], 2) + pow(self.predicted_movement[1], 2))
-                    correction0 = self.position[0] - self.predicted_click[0] * self.current_size[0]
-                    correction1 = self.position[1] - self.predicted_click[1] * self.current_size[1]
-                    correction_length = np.sqrt(pow(correction0, 2) + pow(correction1, 2))
-                    new_direction0 = predicted_length * ((self.predicted_movement[0] / predicted_length) + (correction0 / correction_length)) / 2
-                    new_direction1 = predicted_length * ((self.predicted_movement[1] / predicted_length) + (correction1 / correction_length)) / 2
-                    self.move_mouse(-1 * int(new_direction0), -1 * int(new_direction1))
-                else:
-                    self.move_mouse(-1 * int(self.predicted_movement[0]), -1 * int(self.predicted_movement[1]))
-                if self.choice > 0.99 or self.time_last_click == self.max_time_last_click:
-                    pyautogui.mouseDown()
-                    pyautogui.mouseUp()
-                self.next_move_available = False
+            if self.mode == 'control':
+                cap = pyautogui.screenshot(region=(*self.left_corner, *self.current_size))
+                processed_capture = cap.resize(NETWORK_INPUT)
+                location, sleep_time = self.mouse_predictor.predict(processed_capture)
+                print('Predicted location:', location)
+                print('Predicted sleep time:', sleep_time)
+                location_scaled = location[0] + self.left_corner[0], location[1] + self.left_corner[1]
+                wind_mouse(*pyautogui.position(), *location_scaled, move_mouse=self.move_mouse)
+                pyautogui.click()
+                time.sleep(max(sleep_time + EXTRA_SLEEP + random.random(), 1))
             else:
-                time.sleep(0.001)
+                time.sleep(0.1)
     
     def move_mouse(self, x, y):
-        xi = x // MOUSE_FILL
-        yi = y // MOUSE_FILL
-        xr = np.random.choice(MOUSE_FILL, x % MOUSE_FILL)
-        yr = np.random.choice(MOUSE_FILL, y % MOUSE_FILL)
-        for i in range(MOUSE_FILL): 
-            start_time = time.perf_counter()
-            xr_in = i in xr
-            yr_in = i in yr
-            x_pos, y_pos = win32gui.GetCursorInfo()[2]
-            x_dest = x_pos + xi + 1
-            y_dest = y_pos + yi + 1
-            if xr_in:
-                x_dest += 1
-            if yr_in:
-                y_dest += 1
-            if x_dest == 0 and y_dest == 0:
-                continue
-            x_dest, y_dest = self.box_movement(x_dest, y_dest)
-            #print('next dest', x_dest, y_dest)
-            x_conv = int(65535 * x_dest / x_size)
-            y_conv = int(65535 * y_dest / y_size)
-            win32api.mouse_event(win32con.MOUSEEVENTF_MOVE | win32con.MOUSEEVENTF_ABSOLUTE, x_conv, y_conv)
-            time_taken = time.perf_counter() - start_time
-            #time.sleep(max((self.average_time / MOUSE_FILL) - time_taken, 0) * .8)
+        x_dest, y_dest = self.box_movement(x, y)
+        x_conv = int(65535 * x_dest / x_size)
+        y_conv = int(65535 * y_dest / y_size)
+        win32api.mouse_event(win32con.MOUSEEVENTF_MOVE | win32con.MOUSEEVENTF_ABSOLUTE, x_conv, y_conv)
 
     # Prevents predicted mouse movements from going outside the application area
     def box_movement(self, x, y):
@@ -287,95 +242,13 @@ class ScreenOverlay(QMainWindow):
         new_y = min(max(self.left_corner[1], y), self.right_corner[1])
         return (new_x, new_y)
 
-    def background_thread(self):
-        past_positions = []
-        past_screen_caps = []
-        total_time = 0
-        time_buffer = []
-        movement_vectors = []
-        # This value should be imported at a later time
-        max_movement = 0
-        while self.capture_on:
-            # Wipe local variables on start of new session
-            if self.creating_new_session:
-                self.creating_new_session = False
-                past_positions = []
-                past_screen_caps = []
-                total_time = 0
-                time_buffer = []
-                movement_vectors = []
-            
-            if self.mode == 'idle':
-                self.update()
-                self.idle_on = True
-                time.sleep(0.5)
-                continue
-            else:
-                self.idle_on = False
-            
-            if self.mode == 'training':
-                self.update()
-                self.mouse_predictor.train(self.position_buffer, self.movement_buffer, self.click_buffer)
-                print('Training complete press', config['record'], 'to begin recording or', config['control'], 'to allow for control')
-                self.mode = 'idle'
-            else: # record mode or control mode
-                last_time = time.perf_counter()
-                # Mouse position
-                self.position = self.full_to_window(win32gui.GetCursorInfo()[2])
-                past_positions.append(self.position)
-                # Screen capture
-                cap = pyautogui.screenshot(region=(*self.left_corner, *self.current_size))
-                processed_capture = cap.resize(NETWORK_INPUT)
-                past_screen_caps.append(processed_capture)
-                # Can only calculate movement if we already already have past position recorded
-                if len(past_positions) > 1:
-                    self.movement = (past_positions[-2][0] - self.position[0], past_positions[-2][1] - self.position[1])
-                    movement_vectors.append(self.movement)
-                    # For clipping predicted values
-                    current_max = max(abs(self.movement[0]), abs(self.movement[1]))
-                    if current_max > max_movement:
-                        max_movement = current_max
-                    if self.mode == 'record':
-                        try:
-                            processed_capture.save(IMAGE_DIR + str(self.cur_session) + '\\' + str(self.cur_index) + '.jpg')
-                        except:
-                            self.mode = 'idle'
-                            print('Memory limit reached. Start training using', config['train'])
-                        self.position_buffer[self.cur_session].append(self.position)
-                        self.movement_buffer[self.cur_session].append(self.movement)
-                    self.cur_index += 1
-                # Release oldest capture
-                if len(past_positions) > BUFFER_SIZE:
-                    past_positions.pop(0)
-                    past_screen_caps.pop(0)
-                    movement_vectors.pop(0)
-                    total_time -= time_buffer.pop(0)
-                    self.average_time = total_time / BUFFER_SIZE
-                    if self.mode == 'record':
-                        if len(self.click_buffer[self.cur_session]) == 0:
-                            self.time_last_click = self.cur_index
-                        else:
-                            self.time_last_click = self.cur_index - self.click_buffer[self.cur_session][-1][0]
-                    else: # control mode
-                        if len(self.click_control_buffer) == 0:
-                            self.time_last_click = self.cur_index
-                        else:
-                            self.time_last_click = self.cur_index - self.click_control_buffer[-1][0]
-                    if self.time_last_click > self.max_time_last_click:
-                        self.max_time_last_click = self.time_last_click
-                    # Predict based on current capture
-                    self.predicted_movement, self.predicted_click, self.choice = self.mouse_predictor.predict(past_screen_caps, past_positions, self.time_last_click)
-                    print('Predicted movement:', self.predicted_movement, 'Predicted choice', self.choice, 'Predicted click', self.predicted_click)
-                    self.predicted_movement = self.config['prediction_scale'] * np.clip(self.predicted_movement, -1 * max_movement, max_movement)
-                    self.update()
-                    if DEBUG:
-                        print(self.predicted_movement)
-                    if self.mode == 'control':
-                        # Move mouse using the predicted vector
-                        self.next_move_available = True
-                difference = time.perf_counter() - last_time
-                total_time += difference
-                time_buffer.append(difference)  
+    # Returns true if inside capture window
+    def in_capture_window(self, x, y):
+        if x < self.left_corner[0] or x > self.right_corner[0]:
+            return False
+        if y < self.left_corner[1] or y > self.right_corner[1]:
+            return False
+        return True
 
     # Converts from full screen position to window relative position
     def full_to_window(self, position):
@@ -396,37 +269,21 @@ class ScreenOverlay(QMainWindow):
         painter.drawLine(0,0,self.current_size[0]-1,0)
         painter.drawLine(self.current_size[0],0,self.current_size[0]-1,self.current_size[1]-1)
         painter.drawLine(0,self.current_size[1]-1,self.current_size[0]-1,self.current_size[1]-1)
-        clipped0 = np.clip(self.position[0] - int(self.predicted_movement[0]), 0, self.current_size[0])
-        clipped1 = np.clip(self.position[1] - int(self.predicted_movement[1]), 0, self.current_size[1])
-        if self.draw_predictions:
-            painter.setPen(QtCore.Qt.yellow)
-            painter.drawEllipse(self.position[0] - 5, self.position[1] - 5, 10, 10)
-            predicted_length = np.sqrt(np.square(self.predicted_movement[0]) + np.square(self.predicted_movement[1]))
-            if predicted_length > 5:
-                painter.setPen(QtGui.QColor(255,160,0))
-                move0 = 5 * (self.predicted_movement[0] / predicted_length)
-                move1 = 5 * (self.predicted_movement[1] / predicted_length)
-                painter.drawLine(self.position[0] - move0, self.position[1] - move1, clipped0, clipped1)
-            movement_length = np.sqrt(np.square(self.movement[0]) + np.square(self.movement[1]))
-            if movement_length > 5:
-                painter.setPen(QtGui.QColor(255,160,0))
-                move0 = 5 * (self.movement[0] / movement_length)
-                move1 = 5 * (self.movement[1] / movement_length)
-                painter.drawLine(self.position[0] + move0, self.position[1] + move1, self.position[0] + self.movement[0], self.position[1] + self.movement[1])
-            painter.setPen(QtGui.QColor(128,0,255))
-            painter.drawEllipse(int(self.predicted_click[0] * self.current_size[0]) - 5, int(self.predicted_click[1] * self.current_size[1]) - 5, 10, 10)
 
     def print_help(self):
         print('Keybinds can be set in config.txt')
         print(self.config['close'], '- close program')
-        print(self.config['prediction'], '- show predictions')
-        print(self.config['record'], '- record mode')
-        print(self.config['control'], '- control mode')
         print(self.config['idle'], '- idle mode (does nothing)')
+        print(self.config['record'], '- record mode (also deletes last recorded click)')
+        print(self.config['control'], '- control mode')
+        print(self.config['record-control'], '- controls but also records clicks for training')
+        print(self.config['train'], '- trains network on recorded data')
         print(self.config['save_network'], '- save current network')
         print(self.config['load_network'], '- load a saved network')
         print(self.config['new_network'], '- create new network')
-        print(self.config['discard_last_session'], '- discards the last session (since last press of', config['record'] + ') [NOT IMPLEMENTED]')
+        print(self.config['clear_recording'], '- deletes all training data')
+        print(self.config['modify_learning_rate'], '- updates learning rate of network (default 0.0001)')
+        print(self.config['modify_epochs'], '- updates the number of epochs during learning (default 1000)')
         print(self.config['help'], '- prints this message')
 
 if __name__ == "__main__":
