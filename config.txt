@@ -1,5 +1,4 @@
 {
-    "prediction_scale" : 1.0,
     "window_size" : [800,600],
     "left_corner" : [400,200],
     "close" : "esc",
@@ -8,11 +7,10 @@
     "control" : "f3",
     "record-control" : "f4",
     "train" : "f5",
-    "save_network" : "f6",
-    "load_network" : "f7",
+    "load/save_network" : "f6",
+    "load/save_data" : "f7",
     "new_network" : "f8",
     "clear_recording" : "f9",
-    "modify_learning_rate" : "f10",
-    "modify_epochs" : "f11",
+    "data_edit" : "f10",
     "help" : "f12"
 }

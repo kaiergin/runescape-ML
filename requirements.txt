@@ -1,5 +1,7 @@
-PyQt5
+pyqt5
+pypiwin32
 pynput
 pyautogui
 numpy
-tensorflow==2.1
+Pillow
+tensorflow
