@@ -6,11 +6,11 @@
 - Train the model with the recorded data
 - Let the model do the work, copying where and when to click based on your gameplay
 
-### What is working?  
+### What is working
 
 - The network is fully functional and can be trained to play RuneScape!
 
-### What isn't working?
+### What needs more work
 
 - The network can only predict left clicks so any tasks that require right clicks or shift clicks won't work
 - Currently only support for Windows
@@ -25,10 +25,19 @@
 - Change the learning rate
 - Change the model architecture
 
-### Installation
+### Setup / Installation
 
+- Download the repo
+- Install the latest version of python (I personally use the Anaconda command line)
+- CD into the project directory
+- Install requirements using pip3
 ```
 pip3 install -r requirements.txt
+```
+- Might need to install tensorflow separately, I also recommend CUDA for GPU support which makes training faster
+- Run main.py to start the program
+```
+python main.py
 ```
 
 ### Special thanks
