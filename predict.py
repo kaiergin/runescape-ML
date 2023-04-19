@@ -58,7 +58,7 @@ class Network:
         network_output = self.network(inputs=(screen_cap))
         click_locs, wait_time = [x.numpy()[0] for x in network_output]
         click_locs = min(click_locs[0] * self.capture_size[0], self.capture_size[0]), min(click_locs[1] * self.capture_size[1], self.capture_size[1])
-        wait_time = min(wait_time * MAX_WAIT_TIME, MAX_WAIT_TIME)
+        wait_time = min(wait_time[0] * MAX_WAIT_TIME, MAX_WAIT_TIME)
         return click_locs, wait_time
 
     def save(self, network_path):
