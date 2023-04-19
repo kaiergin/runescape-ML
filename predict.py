@@ -8,8 +8,8 @@ from PIL import ImageFilter
 
 MAX_WAIT_TIME = 15
 LEARNING_RATE = 0.0001
-EPOCHS = 500
-DEBUG = True
+EPOCHS = 200
+DEBUG = False
 
 def swap(a, b):
     return (b, a)
