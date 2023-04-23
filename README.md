@@ -17,6 +17,8 @@
 pip3 install -r requirements.txt
 ```
 - Might need to install tensorflow separately, I also recommend CUDA for GPU support which makes training faster (pretty sure this requires the tensorflow-gpu package)
+- Configure config.txt if necessary
+- Start your RuneScape client
 - Run main.py to start the program
 ```
 python main.py
@@ -25,7 +27,7 @@ python main.py
 ### Notes / Recommendations
 
 - Set the name of the RuneScape client window in config.txt. If using RuneLite, start this program before logging in so that the client is always moved/resized into the same position (logging in changes the window name)
-- Disable the f keys in the RuneScape client. The f keys are used for controlling the program but they also change which tab is currently selected in the game. If the tab selected is different in recording vs training, it will impact where the predicted clicks are
+- Disable the f keys in the RuneScape client. The f keys are used for controlling the program but they also change which tab is selected in the game. If the tab selected is different in recording vs controlling, it will impact where the predicted clicks are
 - Make sure mse is close to 0 after training. If dense_1_mse or dense_2_mse is anywhere near 0.1, then the model isn't converging. If the model doesn't converge, I highly recommend wiping the network and retraining with different starting weights
 - Keep in mind that while recording data, the last recorded click will always be discarded (since each label requires a sleep time until the next click)
 - Closing/minimizing other programs while training will speed up the training process
