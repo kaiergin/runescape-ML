@@ -1,4 +1,5 @@
 {
+    "window_name" : "RuneLite",
     "window_size" : [800,600],
     "left_corner" : [400,200],
     "close" : "esc",
@@ -12,5 +13,6 @@
     "new_network" : "f8",
     "clear_recording" : "f9",
     "data_edit" : "f10",
-    "help" : "f12"
+    "help" : "f12",
+    "windmouse" : true
 }

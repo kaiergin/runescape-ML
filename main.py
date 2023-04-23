@@ -32,7 +32,7 @@ RIGHT_CLICK = 0
 LEFT_CLICK = 1
 SAVE_DIR = 'scripts\\'
 PICKLE_SAVE = 'training.data'
-EXTRA_SLEEP = 1
+EXTRA_SLEEP = 0.5
 
 # For window and main loop
 
@@ -73,6 +73,8 @@ class ScreenOverlay(QMainWindow):
         mouse_listener = mouse.Listener(on_click=self.on_click)
         mouse_listener.start()
         threading.Thread(target=self.background_thread, daemon=True).start()
+
+        find_window_then_resize_and_move(self.config['window_name'], self.left_corner, self.current_size)
 
     def clear_last_capture(self):
         self.last_click_time = None
@@ -116,7 +118,7 @@ class ScreenOverlay(QMainWindow):
             print('{0} at {1}'.format('Pressed' if pressed else 'Released', (x, y)))
         if self.in_capture_window(x, y):
             if self.mode == 'record' or self.mode == 'record-control':
-                if pressed and (button == mouse.Button.left or button == mouse.Button.right):
+                if pressed and (button == mouse.Button.left):# or button == mouse.Button.right):
                     click = self.full_to_window((x, y))#, RIGHT_CLICK if button == mouse.Button.right else LEFT_CLICK
                     cap = pyautogui.screenshot(region=(*self.left_corner, self.current_size[0], self.current_size[1]))
                     processed_capture = cap.resize(NETWORK_INPUT)
@@ -306,15 +308,26 @@ class ScreenOverlay(QMainWindow):
                 print('Predicted location:', location)
                 print('Predicted sleep time:', sleep_time)
                 location_scaled = location[0] + self.left_corner[0], location[1] + self.left_corner[1]
-                wind_mouse(*pyautogui.position(), *location_scaled, move_mouse=self.move_mouse)
-                time.sleep((random.random() / 10) + 0.1)
-                pyautogui.click()
+                # If windmouse is off, auto move mouse to predicted location then back to original location
+                if self.config['windmouse']:
+                    wind_mouse(*pyautogui.position(), *location_scaled, move_mouse=self.move_mouse)
+                    time.sleep((random.random() / 10) + 0.1)
+                    pyautogui.click()
+                else:
+                    current_pos = pyautogui.position()
+                    self.move_mouse(*location_scaled)
+                    time.sleep((random.random() / 10) + 0.02)
+                    pyautogui.click(*location_scaled)
+                    self.move_mouse(*current_pos, False)
                 time.sleep(sleep_time + EXTRA_SLEEP + random.random())
             else:
                 time.sleep(0.1)
     
-    def move_mouse(self, x, y):
-        x_dest, y_dest = self.box_movement(x, y)
+    def move_mouse(self, x, y, box_movement = True):
+        if box_movement:
+            x_dest, y_dest = self.box_movement(x, y)
+        else:
+            x_dest, y_dest = x, y
         x_conv = int(65535 * x_dest / x_size)
         y_conv = int(65535 * y_dest / y_size)
         win32api.mouse_event(win32con.MOUSEEVENTF_MOVE | win32con.MOUSEEVENTF_ABSOLUTE, x_conv, y_conv)
@@ -369,6 +382,15 @@ class ScreenOverlay(QMainWindow):
         print(self.config['clear_recording'], '- deletes all training data')
         print(self.config['data_edit'], '- opens an interface to edit recorded data')
         print(self.config['help'], '- prints this message')
+
+def find_window_then_resize_and_move(window_name, position, size):
+    hwnd = win32gui.FindWindow(None, window_name)
+    if hwnd == 0:
+        print('Window with name', window_name, 'not found for auto moving/resizing')
+        print('Window name can be set in config.txt')
+        return None
+    win32gui.SetWindowPos(hwnd, win32con.HWND_TOP, *position, *size, win32con.SWP_SHOWWINDOW)
+    print('Window with name', window_name, 'moved and resized successfully')
 
 if __name__ == "__main__":
     conf_file = open('config.txt','r')
